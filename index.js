@@ -50,6 +50,18 @@ var defaults = {
 	materials: ['src/materials/**/*'],
 
 	/**
+	 * CSS - snippets turned into partials
+	 * @type {(String|Array)}
+	 */
+	css: ['src/assets/toolkit/styles/components/*'],
+
+	/**
+	 * JS - snippets turned into partials
+	 * @type {(String|Array)}
+	 */
+	js: ['src/assets/toolkit/scripts/modules/*'],
+
+	/**
 	 * JSON or YAML data models that are piped into views
 	 * @type {(String|Array)}
 	 */
@@ -130,6 +142,18 @@ var assembly = {
 	 * @type {Object}
 	 */
 	materials: {},
+
+	/**
+	 * Meta data for CSS, grouped by "collection" (sub-directory); contains name and sub-items
+	 * @type {Object}
+	 */
+	css: {},
+
+	/**
+	 * Meta data for CSS, grouped by "collection" (sub-directory); contains name and sub-items
+	 * @type {Object}
+	 */
+	js: {},
 
 	/**
 	 * Each material's front-matter data
@@ -328,21 +352,29 @@ var parseMaterials = function () {
 		// trim whitespace from material content
 		var content = fileMatter.content.replace(/^(\s*(\r?\n|\r))+|(\s*(\r?\n|\r))+$/g, '');
 
+		// console.log(assembly);
 
 		// capture meta data for the material
 		if (!isSubCollection) {
 			assembly.materials[collection].items[key] = {
 				name: toTitleCase(id),
 				notes: (fileMatter.data.notes) ? md.render(fileMatter.data.notes) : '',
-				data: localData
+				data: localData,
+				css: (assembly.css['_' + id]) ? assembly.css['_' + id].content : '',
+				js: (assembly.js[id]) ? assembly.js[id].content : ''
 			};
+			// console.log(assembly.materials[collection].items[key])
 		} else {
 			assembly.materials[parent].items[collection].items[key] = {
 				name: toTitleCase(id.split('.')[1]),
 				notes: (fileMatter.data.notes) ? md.render(fileMatter.data.notes) : '',
-				data: localData
+				data: localData,
+				css: (assembly.css['_' + id]) ? assembly.css['_' + id].content : '',
+				js: (assembly.js[id]) ? assembly.js[id].content : ''
 			};
+			// console.log(assembly.materials[parent].items[collection].items[key])
 		}
+
 
 
 		// store material-name-spaced local data in template context
@@ -365,6 +397,8 @@ var parseMaterials = function () {
 		// register the partial
 		Handlebars.registerPartial(id, content);
 
+
+
 	});
 
 
@@ -374,7 +408,6 @@ var parseMaterials = function () {
 	for (var collection in assembly.materials) {
 		assembly.materials[collection].items = sortObj(assembly.materials[collection].items, 'order');
 	}
-
 };
 
 
@@ -398,6 +431,61 @@ var parseDocs = function () {
 		assembly.docs[id] = {
 			name: toTitleCase(id),
 			content: md.render(fs.readFileSync(file, 'utf-8'))
+		};
+
+	});
+
+};
+
+/**
+ * Parse css files
+ */
+var parseCSS = function () {
+
+	// reset
+	assembly.css = {};
+
+	// get files
+	var files = globby.sync(options.css, { nodir: true });
+
+	// iterate over each file (material)
+	files.forEach(function (file) {
+		// console.log(file);
+
+		var id = getName(file);
+
+		// save each as unique prop
+		assembly.css[id] = {
+			name: toTitleCase(id).split('_').pop(),
+			content: fs.readFileSync(file, 'utf-8')
+		};
+
+	});
+
+};
+
+
+/**
+ * Parse JS files
+ */
+var parseJS = function () {
+
+	// reset
+	assembly.js = {};
+
+	// get files
+	var files = globby.sync(options.js, { nodir: true });
+
+	// iterate over each file (material)
+	files.forEach(function (file) {
+		// console.log(file);
+
+		var id = getName(file);
+
+		// save each as unique prop
+		assembly.js[id] = {
+			name: toTitleCase(id),
+			content: fs.readFileSync(file, 'utf-8')
 		};
 
 	});
@@ -586,6 +674,8 @@ var setup = function (userOptions) {
 	registerHelpers();
 	parseLayouts();
 	parseLayoutIncludes();
+	parseCSS();
+	parseJS();
 	parseData();
 	parseMaterials();
 	parseViews();
