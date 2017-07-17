@@ -352,8 +352,6 @@ var parseMaterials = function () {
 		// trim whitespace from material content
 		var content = fileMatter.content.replace(/^(\s*(\r?\n|\r))+|(\s*(\r?\n|\r))+$/g, '');
 
-		// console.log(assembly);
-
 		// capture meta data for the material
 		if (!isSubCollection) {
 			assembly.materials[collection].items[key] = {
@@ -363,7 +361,6 @@ var parseMaterials = function () {
 				css: (assembly.css['_' + id]) ? assembly.css['_' + id].content : '',
 				js: (assembly.js[id]) ? assembly.js[id].content : ''
 			};
-			// console.log(assembly.materials[collection].items[key])
 		} else {
 			assembly.materials[parent].items[collection].items[key] = {
 				name: toTitleCase(id.split('.')[1]),
@@ -372,7 +369,6 @@ var parseMaterials = function () {
 				css: (assembly.css['_' + id]) ? assembly.css['_' + id].content : '',
 				js: (assembly.js[id]) ? assembly.js[id].content : ''
 			};
-			// console.log(assembly.materials[parent].items[collection].items[key])
 		}
 
 
@@ -450,8 +446,6 @@ var parseCSS = function () {
 
 	// iterate over each file (material)
 	files.forEach(function (file) {
-		// console.log(file);
-
 		var id = getName(file);
 
 		// save each as unique prop
@@ -478,8 +472,6 @@ var parseJS = function () {
 
 	// iterate over each file (material)
 	files.forEach(function (file) {
-		// console.log(file);
-
 		var id = getName(file);
 
 		// save each as unique prop
