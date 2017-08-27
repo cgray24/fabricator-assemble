@@ -12,6 +12,10 @@ var mkdirp = require('mkdirp');
 var path = require('path');
 var sortObj = require('sort-object');
 var yaml = require('js-yaml');
+var anymatch = require('anymatch');
+
+
+var logging = true;
 
 
 /**
@@ -172,8 +176,12 @@ var assembly = {
 	 * @type {Object}
 	 */
 	docs: {}
-};
 
+};  //end of defaults===========
+
+
+
+//FUNCTIONS =====================
 
 /**
  * Get the name of a file (minus extension) from a path
@@ -191,6 +199,20 @@ var getName = function (filePath, preserveNumbers) {
 };
 
 
+
+
+/**
+ * Attempt to read front matter, handle errors
+ * @param  {object or string} Message To Log
+ * @return none
+ */
+var log = function (message) {
+	if(logging){
+		console.log("====== LOGGER ===============");
+		console.log(message);
+	}
+};
+
 /**
  * Attempt to read front matter, handle errors
  * @param  {String} file Path to file
@@ -201,6 +223,41 @@ var getMatter = function (file) {
 		parser: require('js-yaml').safeLoad
 	});
 };
+
+
+
+
+/**
+ * Convert a file name to title case
+ * @param  {String} str
+ * @return {String}
+ */
+var toTitleCase = function(str) {
+	return str.replace(/(\-|_)/g, ' ').replace(/\w\S*/g, function(word) {
+		return word.charAt(0).toUpperCase() + word.substr(1).toLowerCase();
+	});
+};
+
+
+var config = {
+	ext: '.html',
+	config: 'config',
+	splitter: '--'
+}
+
+
+var isView = function (file) {
+    return anymatch([
+        `**/*.html`,
+    ], file);
+}
+
+var isVariant = function (file) {
+	return anymatch([
+		`**/*${config.splitter}*`
+	], file);
+}
+
 
 
 /**
@@ -239,250 +296,6 @@ var handleError = function (e) {
 
 };
 
-
-/**
- * Build the template context by merging context-specific data with assembly data
- * @param  {Object} data
- * @return {Object}
- */
-var buildContext = function (data, hash) {
-
-	// set keys to whatever is defined
-	var materials = {};
-	materials[options.keys.materials] = assembly.materials;
-
-	var views = {};
-	views[options.keys.views] = assembly.views;
-
-	var docs = {};
-	docs[options.keys.docs] = assembly.docs;
-
-	return _.assign({}, data, assembly.data, assembly.materialData, materials, views, docs, hash);
-
-};
-
-
-/**
- * Convert a file name to title case
- * @param  {String} str
- * @return {String}
- */
-var toTitleCase = function(str) {
-	return str.replace(/(\-|_)/g, ' ').replace(/\w\S*/g, function(word) {
-		return word.charAt(0).toUpperCase() + word.substr(1).toLowerCase();
-	});
-};
-
-
-/**
- * Insert the page into a layout
- * @param  {String} page
- * @param  {String} layout
- * @return {String}
- */
-var wrapPage = function (page, layout) {
-	return layout.replace(/\{\%\s?body\s?\%\}/, page);
-};
-
-
-/**
- * Parse each material - collect data, create partial
- */
-var parseMaterials = function () {
-
-	// reset object
-	assembly.materials = {};
-
-	// get files and dirs
-	var files = globby.sync(options.materials, { nodir: true, nosort: true });
-
-	// build a glob for identifying directories
-	options.materials = (typeof options.materials === 'string') ? [options.materials] : options.materials;
-	var dirsGlob = options.materials.map(function (pattern) {
-		return path.dirname(pattern) + '/*/';
-	});
-
-	// get all directories
-	// do a new glob; trailing slash matches only dirs
-	var dirs = globby.sync(dirsGlob).map(function (dir) {
-		return path.normalize(dir).split(path.sep).slice(-2, -1)[0];
-	});
-
-
-	// stub out an object for each collection and subCollection
-	files.forEach(function (file) {
-
-		var parent = getName(path.normalize(path.dirname(file)).split(path.sep).slice(-2, -1)[0], true);
-		var collection = getName(path.normalize(path.dirname(file)).split(path.sep).pop(), true);
-		var isSubCollection = (dirs.indexOf(parent) > -1);
-
-		// get the material base dir for stubbing out the base object for each category (e.g. component, structure)
-		var materialBase = (isSubCollection) ? parent : collection;
-
-		// stub the base object
-		assembly.materials[materialBase] = assembly.materials[materialBase] || {
-			name: toTitleCase(getName(materialBase)),
-			items: {}
-		};
-
-		if (isSubCollection) {
-			assembly.materials[parent].items[collection] = assembly.materials[parent].items[collection] || {
-				name: toTitleCase(getName(collection)),
-				items: {}
-			};
-		}
-
-	});
-
-
-	// iterate over each file (material)
-	files.forEach(function (file) {
-
-		// get info
-		var fileMatter = getMatter(file);
-		var collection = getName(path.normalize(path.dirname(file)).split(path.sep).pop(), true);
-		var parent = path.normalize(path.dirname(file)).split(path.sep).slice(-2, -1)[0];
-		var isSubCollection = (dirs.indexOf(parent) > -1);
-		var id = (isSubCollection) ? getName(collection) + '.' + getName(file) : getName(file);
-		var key = (isSubCollection) ? collection + '.' + getName(file, true) : getName(file, true);
-
-		// get material front-matter, omit `notes`
-		var localData = _.omit(fileMatter.data, 'notes');
-
-		// trim whitespace from material content
-		var content = fileMatter.content.replace(/^(\s*(\r?\n|\r))+|(\s*(\r?\n|\r))+$/g, '');
-
-		// capture meta data for the material
-		if (!isSubCollection) {
-			assembly.materials[collection].items[key] = {
-				name: toTitleCase(id),
-				notes: (fileMatter.data.notes) ? md.render(fileMatter.data.notes) : '',
-				data: localData,
-				css: (assembly.css['_' + id]) ? assembly.css['_' + id].content : '',
-				js: (assembly.js[id]) ? assembly.js[id].content : ''
-			};
-		} else {
-			assembly.materials[parent].items[collection].items[key] = {
-				name: toTitleCase(id.split('.')[1]),
-				notes: (fileMatter.data.notes) ? md.render(fileMatter.data.notes) : '',
-				data: localData,
-				css: (assembly.css['_' + id]) ? assembly.css['_' + id].content : '',
-				js: (assembly.js[id]) ? assembly.js[id].content : ''
-			};
-		}
-
-
-
-		// store material-name-spaced local data in template context
-		assembly.materialData[id.replace(/\./g, '-')] = localData;
-
-
-		// replace local fields on the fly with name-spaced keys
-		// this allows partials to use local front-matter data
-		// only affects the compilation environment
-		if (!_.isEmpty(localData)) {
-			_.forEach(localData, function (val, key) {
-				// {{field}} => {{material-name.field}}
-				var regex = new RegExp('(\\{\\{[#\/]?)(\\s?' + key + '+?\\s?)(\\}\\})', 'g');
-				content = content.replace(regex, function (match, p1, p2, p3) {
-					return p1 + id.replace(/\./g, '-') + '.' + p2.replace(/\s/g, '') + p3;
-				});
-			});
-		}
-
-		// register the partial
-		Handlebars.registerPartial(id, content);
-
-
-
-	});
-
-
-	// sort materials object alphabetically
-	assembly.materials = sortObj(assembly.materials, 'order');
-
-	for (var collection in assembly.materials) {
-		assembly.materials[collection].items = sortObj(assembly.materials[collection].items, 'order');
-	}
-};
-
-
-/**
- * Parse markdown files as "docs"
- */
-var parseDocs = function () {
-
-	// reset
-	assembly.docs = {};
-
-	// get files
-	var files = globby.sync(options.docs, { nodir: true });
-
-	// iterate over each file (material)
-	files.forEach(function (file) {
-
-		var id = getName(file);
-
-		// save each as unique prop
-		assembly.docs[id] = {
-			name: toTitleCase(id),
-			content: md.render(fs.readFileSync(file, 'utf-8'))
-		};
-
-	});
-
-};
-
-/**
- * Parse css files
- */
-var parseCSS = function () {
-
-	// reset
-	assembly.css = {};
-
-	// get files
-	var files = globby.sync(options.css, { nodir: true });
-
-	// iterate over each file (material)
-	files.forEach(function (file) {
-		var id = getName(file);
-
-		// save each as unique prop
-		assembly.css[id] = {
-			name: toTitleCase(id).split('_').pop(),
-			content: fs.readFileSync(file, 'utf-8')
-		};
-
-	});
-
-};
-
-
-/**
- * Parse JS files
- */
-var parseJS = function () {
-
-	// reset
-	assembly.js = {};
-
-	// get files
-	var files = globby.sync(options.js, { nodir: true });
-
-	// iterate over each file (material)
-	files.forEach(function (file) {
-		var id = getName(file);
-
-		// save each as unique prop
-		assembly.js[id] = {
-			name: toTitleCase(id),
-			content: fs.readFileSync(file, 'utf-8')
-		};
-
-	});
-
-};
 
 
 /**
@@ -524,70 +337,6 @@ var parseLayoutIncludes = function () {
 };
 
 
-/**
- * Parse data files and save JSON
- */
-var parseData = function () {
-
-	// reset
-	assembly.data = {};
-
-	// get files
-	var files = globby.sync(options.data, { nodir: true });
-
-	// save content of each file
-	files.forEach(function (file) {
-		var id = getName(file);
-		var content = yaml.safeLoad(fs.readFileSync(file, 'utf-8'));
-		assembly.data[id] = content;
-	});
-
-};
-
-
-/**
- * Get meta data for views
- */
-var parseViews = function () {
-
-	// reset
-	assembly.views = {};
-
-	// get files
-	var files = globby.sync(options.views, { nodir: true });
-
-	files.forEach(function (file) {
-
-		var id = getName(file, true);
-
-		// determine if view is part of a collection (subdir)
-		var dirname = path.normalize(path.dirname(file)).split(path.sep).pop(),
-			collection = (dirname !== options.keys.views) ? dirname : '';
-
-		var fileMatter = getMatter(file),
-			fileData = _.omit(fileMatter.data, 'notes');
-
-		// if this file is part of a collection
-		if (collection) {
-
-			// create collection if it doesn't exist
-			assembly.views[collection] = assembly.views[collection] || {
-				name: toTitleCase(collection),
-				items: {}
-			};
-
-			// store view data
-			assembly.views[collection].items[id] = {
-				name: toTitleCase(id),
-				data: fileData
-			};
-
-		}
-
-	});
-
-};
-
 
 /**
  * Register new Handlebars helpers
@@ -606,15 +355,12 @@ var registerHelpers = function () {
 		Handlebars.registerHelper(key, require(path));
 	});
 
-
 	// register user helpers
 	for (var helper in userHelpers) {
 		if (userHelpers.hasOwnProperty(helper)) {
 			Handlebars.registerHelper(helper, userHelpers[helper]);
 		}
 	}
-
-
 	/**
 	 * Helpers that require local functions like `buildContext()`
 	 */
@@ -649,95 +395,178 @@ var registerHelpers = function () {
 		return beautifyHtml(fn(buildContext(context, opts.hash)).replace(/^\s+/, ''), options.beautifier);
 
 	});
+};
+
+
+
+/**
+ * Parse data files and save JSON
+ */
+var parseData = function () {
+
+	// reset
+	assembly.data = {};
+
+	// get files
+	var files = globby.sync(options.data, { nodir: true });
+
+	// save content of each file
+	files.forEach(function (file) {
+		var id = getName(file);
+		var content = yaml.safeLoad(fs.readFileSync(file, 'utf-8'));
+		assembly.data[id] = content;
+	});
 
 };
+
+
+
+
+/**
+ * Parse each material - collect data, create partial
+ */
+var parseMaterials = function () {
+
+		// reset object
+		assembly.materials = {};
+
+		options.materials.forEach(function(path){
+			var materialBase = getName(path);
+			var pathSearch = path + '**/*/';
+			// get the material base dir for stubbing out the base object for each category (e.g. component, structure)
+
+			// get files and dirs
+			var components = globby.sync(pathSearch, {nosort: true });
+
+			if(!components.length){return;} //stop looking if no components, should really look for templates
+
+			console.log(getName(materialBase));
+
+			assembly.materials[materialBase] = assembly.materials[materialBase] || {
+					name: toTitleCase(getName(materialBase)),
+					items: {}
+				};
+
+			// iterate over each component
+			components.forEach(function(component){
+				console.log("== " + getName(component));
+
+				var pathSearch = component + '**/*';
+
+				console.log(pathSearch);
+				// get files
+				var files = globby.sync(pathSearch, {nosort: true });
+
+
+
+				files.forEach(function(file){
+					console.log("Is View?  " + file);
+					console.log(isView(file));
+
+					console.log("Is Variant?  " + file);
+					console.log(isVariant(file));
+
+
+				})
+
+
+
+
+
+
+				// console.log("== "+ getName(component));
+				//
+				// var componentName = getName(component);
+
+
+				//assembly.materials[materialBase].items
+
+
+
+
+
+
+
+			}); // each components
+
+
+
+
+
+
+
+
+		}); // each materials
+
+
+
+
+console.log(assembly.materials);
+
+		// get files and dirs
+
+		// build a glob for identifying directories
+		// options.materials = (typeof options.materials === 'string') ? [options.materials] : options.materials;
+		// var dirsGlob = options.materials.map(function (pattern) {
+		// 	return path.dirname(pattern) + '/*/';
+		// });
+
+		// get all directories
+		// do a new glob; trailing slash matches only dirs
+		// var dirs = globby.sync(dirsGlob).map(function (dir) {
+		// 	return path.normalize(dir).split(path.sep).slice(-2, -1)[0];
+		// });
+
+		//console.log("dirs");
+		//console.log(dirs);
+
+
+}
+
+
+
+
+
 
 
 /**
  * Setup the assembly
  * @param  {Objet} options  User options
  */
-var setup = function (userOptions) {
+	var setup = function (userOptions) {
 
 	// merge user options with defaults
 	options = _.merge({}, defaults, userOptions);
 
+	// require("./lib/registerHelper.js");
+	// require("/lib/parse-layouts.js");
+	// require("/lib/parse-layoutIncludes.js");
+
 	// setup steps
+	log("Registering Helpers");
 	registerHelpers();
+
+	log("Parsing Layouts");
 	parseLayouts();
+
+	log("Parse Layout Includes");
 	parseLayoutIncludes();
-	parseCSS();
-	parseJS();
-	parseData();
-	parseMaterials();
-	parseViews();
-	parseDocs();
+
+	// parseCSS();
+	// parseJS();
+	 parseData();
+	 parseMaterials();
+	// parseViews();
+	// parseDocs();
+
 
 };
 
 
-/**
- * Assemble views using materials, data, and docs
- */
-var assemble = function () {
 
-	// get files
-	var files = globby.sync(options.views, { nodir: true });
+// END OF FUNCTIONS =================
 
-	// create output directory if it doesn't already exist
-	mkdirp.sync(options.dest);
 
-	// iterate over each view
-	files.forEach(function (file) {
-
-		var id = getName(file);
-
-		// build filePath
-		var dirname = path.normalize(path.dirname(file)).split(path.sep).pop(),
-			collection = (dirname !== options.keys.views) ? dirname : '',
-			filePath = path.normalize(path.join(options.dest, collection, path.basename(file)));
-
-		// get page gray matter and content
-		var pageMatter = getMatter(file),
-			pageContent = pageMatter.content;
-
-		if (collection) {
-			pageMatter.data.baseurl = '..';
-		}
-
-		// template using Handlebars
-		var source = wrapPage(pageContent, assembly.layouts[pageMatter.data.layout || options.layout]),
-			context = buildContext(pageMatter.data),
-			template = Handlebars.compile(source);
-
-		// redefine file path if dest front-matter variable is defined
-		if (pageMatter.data.dest) {
-			filePath = path.normalize(pageMatter.data.dest);
-		}
-
-		// change extension to .html
-		filePath = filePath.replace(/\.[0-9a-z]+$/, '.html');
-
-		// write file
-		mkdirp.sync(path.dirname(filePath));
-		try {
-			fs.writeFileSync(filePath, template(context));
-		} catch(e) {
-			const originFilePath = path.dirname(file) + '/' + path.basename(file);
-
-			console.error('\x1b[31m \x1b[1mBold', 'Error while comiling template', originFilePath, '\x1b[0m \n')
-			throw e;
-		}
-
-		// write a copy file if custom dest-copy front-matter variable is defined
-		if (pageMatter.data['dest-copy']) {
-			var copyPath = path.normalize(pageMatter.data['dest-copy']);
-			mkdirp.sync(path.dirname(copyPath));
-			fs.writeFileSync(copyPath, template(context));
-		}
-	});
-
-};
 
 
 /**
@@ -747,12 +576,11 @@ var assemble = function () {
 module.exports = function (options) {
 
 	try {
-
 		// setup assembly
 		setup(options);
 
 		// assemble
-		assemble();
+		//assemble();
 
 	} catch(e) {
 		handleError(e);
